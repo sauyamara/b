@@ -1,5 +1,4 @@
 import os
-import re
 import yt_dlp
 
 def extract_m3u8_link(file_path):
@@ -14,6 +13,12 @@ def extract_m3u8_link(file_path):
                     return m3u8_url  # Return the cleaned M3U8 link
     return None  # Return None if no valid M3U8 link is found
 
+def format_mp4_filename(txt_filename):
+    """Formats the .txt filename to the desired .mp4 format."""
+    base_filename = os.path.splitext(txt_filename)[0]  # Remove .txt extension
+    formatted_filename = base_filename.replace("__", " ").replace("_", " ") + ".mp4"  # Remove underscores and replace with spaces
+    return formatted_filename
+
 def download_m3u8_from_file(file_path):
     # Extract the M3U8 link from the file
     m3u8_url = extract_m3u8_link(file_path)
@@ -22,66 +27,41 @@ def download_m3u8_from_file(file_path):
         print(f"No valid M3U8 link found in {file_path}. Skipping file.")
         return
 
-    # Extract the base filename and episode number from the text file's name
-    base_filename = os.path.splitext(os.path.basename(file_path))[0]
-    
-    # Find the episode number using regex
-    match = re.search(r'episode(\d+)', base_filename, re.IGNORECASE)
-    if match:
-        episode_number = int(match.group(1))  # Extract the episode number
-        output_number = episode_number + 175
-        output_file = f"{output_number}.mp4"  # Create output filename
-    else:
-        print(f"Skipping {file_path}: Filename does not contain an episode number.")
-        return
+    # Format the output filename for the MP4
+    txt_filename = os.path.basename(file_path)
+    output_filename = format_mp4_filename(txt_filename)
 
     # Check if the file already exists to prevent duplicate downloads
-    if os.path.exists(output_file):
-        print(f"{output_file} already exists. Skipping download.")
+    if os.path.exists(output_filename):
+        print(f"{output_filename} already exists. Skipping download.")
         return
 
-    # Define yt-dlp options
+    # Define yt-dlp options to download best available quality
     ydl_opts = {
-        'format': 'best',  # Default to download the best available quality
-        'noplaylist': True,  # Do not download playlists, just the video
-        'quiet': True,  # Suppress output for the format list
+        'format': 'best',  # Download the best available quality
+        'noplaylist': True,  # Do not download playlists
+        'outtmpl': output_filename  # Output path for the downloaded file
     }
 
-    # Fetch available formats
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        # Get information about the video
-        try:
-            info_dict = ydl.extract_info(m3u8_url, download=False)
-        except yt_dlp.utils.DownloadError as e:
-            print(f"Error downloading {m3u8_url}: {e}")
-            return
-        
-        # Print available formats
-        print(f"Available formats for {output_file}:")
-        for format_info in info_dict['formats']:
-            print(f"Format ID: {format_info['format_id']}, Resolution: {format_info.get('height', 'N/A')}p, URL: {format_info['url']}")
-        
-        # Check for 720p format
-        target_format = next((f for f in info_dict['formats'] if f.get('height') == 720), None)
+    # Use yt-dlp to fetch available formats and check for 720p
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info_dict = ydl.extract_info(m3u8_url, download=False)  # Fetch info without downloading
+            # Check if a 720p format is available
+            target_format = next((f for f in info_dict['formats'] if f.get('height') == 720), None)
+            
+            if target_format:
+                print(f"720p format found. Downloading {output_filename} in 720p...")
+                ydl_opts['format'] = target_format['format_id']  # Download 720p
+            else:
+                print(f"No 720p format available for {output_filename}. Downloading best available format...")
+            
+            # Download the video
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([m3u8_url])
 
-        if target_format:
-            print(f"\nDownloading 720p format for {output_file}...")
-            # Download the selected 720p format
-            ydl_opts['format'] = target_format['format_id']  # Set to download 720p
-            ydl_opts['outtmpl'] = output_file  # Output path for the downloaded file
-            
-            # Create a new instance to download the video with the specified format
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([m3u8_url])
-        else:
-            print(f"720p format not found for {output_file}. Downloading best available format...")
-            # Fallback to the best format if 720p is not available
-            ydl_opts['format'] = 'best'  # Reset to best format
-            ydl_opts['outtmpl'] = output_file  # Output path for the downloaded file
-            
-            # Create a new instance to download the video with the specified format
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([m3u8_url])
+    except yt_dlp.utils.DownloadError as e:
+        print(f"Error downloading {m3u8_url}: {e}")
 
 if __name__ == "__main__":
     # Get the current directory where the script is located
@@ -93,3 +73,4 @@ if __name__ == "__main__":
             txt_file_path = os.path.join(current_directory, filename)
             print(f"Processing {txt_file_path}...")
             download_m3u8_from_file(txt_file_path)
+            
